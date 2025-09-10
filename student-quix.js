@@ -1,44 +1,45 @@
 const numberOfstudents =
-  document.querySelectorAll("#DisplayResult_SearchDataList > tbody tr").length /
-    2 -
-  1;
+    (document.querySelectorAll("#DisplayResult_SearchResultCtl_SearchDataList > tbody tr").length -1) /
+    2;
 const iframe = document.querySelector("#infoPage");
 
+
+console.log(numberOfstudents)
 let students = [];
 for (let i = 0; i < numberOfstudents; i++) {
-  const studentId = getStudentId(i);
-  const studentName = getStudentName(i);
-  students.push({ id: studentId, name: studentName });
+    const studentId = getStudentId(i);
+    const studentName = getStudentName(i);
+    students.push({ id: studentId, name: studentName });
 }
 
 function getStudentId(studentNumberInRow) {
-  const spanWithStudentId = document.querySelector(
-    `#DisplayResult_SearchDataList_lblLoginName_${studentNumberInRow}`
-  );
-  const studentId = spanWithStudentId.innerText;
-  return studentId;
+    const spanWithStudentId = document.querySelector(
+        `#DisplayResult_SearchResultCtl_SearchDataList_lblLoginName_${studentNumberInRow}`
+    );
+    const studentId = spanWithStudentId.innerText;
+    return studentId;
 }
 
 function getStudentName(studentNumberInRow) {
-  const spanWithStudentName = document.querySelector(
-    `#DisplayResult_SearchDataList_lblObjectName_${studentNumberInRow}`
-  );
-  const studentName = spanWithStudentName.innerText;
-  return studentName;
+    const spanWithStudentName = document.querySelector(
+        `#DisplayResult_SearchResultCtl_SearchDataList_lblObjectName_${studentNumberInRow}`
+    );
+    const studentName = spanWithStudentName.innerText;
+    return studentName;
 }
 
 let currentStudentname;
 function showStudent(student) {
-  iframe.setAttribute(
-    "src",
-    `../include/InfoPage.aspx?login=${student.id}&type=S`
-  );
-  iframe.style.visibility = "visible";
-  iframe.style.width = "104px";
-  iframe.style.top = "10%";
-  iframe.style.left = "50%";
-  iframe.style.transform = "translateX(-50%)";
-  currentStudentname = student.name;
+    iframe.setAttribute(
+        "src",
+        `../include/InfoPage.aspx?login=${student.id}&type=S`
+    );
+    iframe.style.visibility = "visible";
+    iframe.style.width = "104px";
+    iframe.style.top = "10%";
+    iframe.style.left = "50%";
+    iframe.style.transform = "translateX(-50%)";
+    currentStudentname = student.name;
 }
 
 showStudent(students[randomIntFromInterval(0, numberOfstudents)]);
@@ -60,7 +61,7 @@ div.style.flexDirection = "column";
 
 let dataListConstructorString = `<datalist id="student-name-guess-list">`;
 students.forEach((student) => {
-  dataListConstructorString += `<option value="${student.name}" >${student.name}</option>`;
+    dataListConstructorString += `<option value="${student.name}" >${student.name}</option>`;
 });
 
 dataListConstructorString += "</datalist>";
@@ -79,29 +80,29 @@ div.innerHTML = `
 const result = document.querySelector(".result");
 const studentNameInput = document.querySelector(".student-name-guess");
 document.querySelector("button.guess-student").addEventListener("click", () => {
-  showResult();
+    showResult();
 });
 
 document.querySelector("button.next-guess").addEventListener("click", () => {
-  const randomStudent = getRandomStudentId();
-  showStudent(randomStudent);
-  studentNameInput.value = "";
-  result.innerHTML = " ";
+    const randomStudent = getRandomStudentId();
+    showStudent(randomStudent);
+    studentNameInput.value = "";
+    result.innerHTML = " ";
 });
 
 function showResult() {
-  if (studentNameInput.value === currentStudentname) {
-    result.innerHTML = "You are correct 🎉";
-  } else {
-    result.innerHTML = "You are wrong 😭 The name is " + currentStudentname;
-  }
+    if (studentNameInput.value === currentStudentname) {
+        result.innerHTML = "You are correct 🎉";
+    } else {
+        result.innerHTML = "You are wrong 😭 The name is " + currentStudentname;
+    }
 }
 
 function randomIntFromInterval(min, max) {
-  // min and max included
-  return Math.floor(Math.random() * (max - min + 1) + min);
+    // min and max included
+    return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
 function getRandomStudentId() {
-  return students[randomIntFromInterval(0, numberOfstudents)];
+    return students[randomIntFromInterval(0, numberOfstudents)];
 }
