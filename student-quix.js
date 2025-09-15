@@ -146,7 +146,7 @@
     resultEl.textContent = '';
     nameInput.value = '';
     imgEl.src = '';
-    imgEl.alt = `Photo of ${student.name}`;
+    imgEl.alt = `Loading student image`;
     try {
       const imgSrc = await loadStudentImage(student);
       imgEl.src = imgSrc;
@@ -196,16 +196,33 @@
   nextStudent();
   nameInput.focus();
 
-const card = document.querySelector('#student-quiz-card');
-  if (!card || document.getElementById('quiz-credits')) return;
 
-  const credits = document.createElement('div');
-  credits.id = 'quiz-credits';
-  credits.innerHTML = `Lave af <a href="https://www.linkedin.com/in/benjamindalshughes/" target="_blank" rel="noopener noreferrer">Benjamin Hughes</a>`;
-  credits.style.fontSize = '12px';
-  credits.style.color = '#666';
-  credits.style.marginTop = '8px';
-  credits.style.textAlign = 'right';
-  credits.style.width = '100%';
-  card.appendChild(credits);
+
+  const card = document.querySelector('#student-quiz-card');
+  if (!card) return;
+
+  let credits = document.getElementById('quiz-credits');
+  if (!credits) {
+    credits = document.createElement('div');
+    credits.id = 'quiz-credits';
+    credits.style.fontSize = '12px';
+    credits.style.color = '#666';
+    credits.style.marginTop = '8px';
+    credits.style.textAlign = 'right';
+		credits.style.width = '100%'
+    credits.innerHTML = `Lave af <a href="https://www.linkedin.com/in/benjamindalshughes/">Benjamin Hughes</a>`;
+    card.appendChild(credits);
+  }
+
+  // Make the link look like a link
+  const a = credits.querySelector('a');
+  if (a) {
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.style.color = '#06c';             // classic link blue
+    a.style.textDecoration = 'underline';
+    a.style.cursor = 'pointer';
+  }
+
+
 })();
