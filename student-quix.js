@@ -1,108 +1,211 @@
-const numberOfstudents =
-    (document.querySelectorAll("#DisplayResult_SearchResultCtl_SearchDataList > tbody tr").length -1) /
-    2;
-const iframe = document.querySelector("#infoPage");
+(() => {
+  'use strict';
 
+  // ==== Guard: if overlay already exists, just focus it and exit ============
+  const QUIZ_OVERLAY_ID = 'student-quiz-overlay';
+  const EXISTING = document.getElementById(QUIZ_OVERLAY_ID);
+  if (EXISTING) {
+    const input = EXISTING.querySelector('#student-name-guess');
+    if (input) { input.focus(); input.select(); }
+    return;
+  }
 
-console.log(numberOfstudents)
-let students = [];
-for (let i = 0; i < numberOfstudents; i++) {
-    const studentId = getStudentId(i);
-    const studentName = getStudentName(i);
-    students.push({ id: studentId, name: studentName });
-}
+  // ==== Utilities ===========================================================
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const normalize = (s) =>
+    (s ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-function getStudentId(studentNumberInRow) {
-    const spanWithStudentId = document.querySelector(
-        `#DisplayResult_SearchResultCtl_SearchDataList_lblLoginName_${studentNumberInRow}`
-    );
-    const studentId = spanWithStudentId.innerText;
-    return studentId;
-}
+  // ==== Extract students ====================================================
+  const idSpans = $$('[id^="DisplayResult_SearchResultCtl_SearchDataList_lblLoginName_"]');
+  const nameSpans = $$('[id^="DisplayResult_SearchResultCtl_SearchDataList_lblObjectName_"]');
 
-function getStudentName(studentNumberInRow) {
-    const spanWithStudentName = document.querySelector(
-        `#DisplayResult_SearchResultCtl_SearchDataList_lblObjectName_${studentNumberInRow}`
-    );
-    const studentName = spanWithStudentName.innerText;
-    return studentName;
-}
+  const students = idSpans.map((span, i) => ({
+    id: span?.textContent?.trim(),
+    name: nameSpans[i]?.textContent?.trim(),
+  })).filter(s => s.id && s.name);
 
-let currentStudentname;
-function showStudent(student) {
-    iframe.setAttribute(
-        "src",
-        `../include/InfoPage.aspx?login=${student.id}&type=S`
-    );
-    iframe.style.visibility = "visible";
-    iframe.style.width = "104px";
-    iframe.style.top = "10%";
-    iframe.style.left = "50%";
-    iframe.style.transform = "translateX(-50%)";
-    currentStudentname = student.name;
-}
+  if (!students.length) {
+    console.warn('No students found. Check the selectors.');
+  }
 
-showStudent(students[randomIntFromInterval(0, numberOfstudents)]);
+  // ==== Hidden iframe (loader) + visible img ================================
+  let loaderIframe = document.getElementById('infoPage');
+  if (!loaderIframe) {
+    loaderIframe = document.createElement('iframe');
+    loaderIframe.id = 'infoPage';
+    document.body.appendChild(loaderIframe);
+  }
+  loaderIframe.setAttribute('aria-hidden', 'true');
+  loaderIframe.style.display = 'none';
 
-console.log(document.querySelector("#infoPage"));
+  const visibleImg = document.createElement('img');
+  visibleImg.id = 'studentPhoto';
+  visibleImg.alt = 'Student photo';
+  visibleImg.decoding = 'async';
+  visibleImg.loading = 'eager';
 
-const div = document.body.appendChild(document.createElement("div"));
-div.style.width = "100vw";
-div.style.height = "100vh";
-div.style.backgroundColor = "red";
-div.style.position = "fixed";
-div.style.top = "0px";
-div.style.left = "0px";
-div.style.zIndex = 10;
-div.style.display = "flex";
-div.style.justifyContent = "center";
-div.style.alignItems = "center";
-div.style.flexDirection = "column";
+  // ==== Styles (only once) ==================================================
+  if (!document.getElementById('student-quiz-style')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'student-quiz-style';
+    styleEl.textContent = `
+      #student-quiz-overlay{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:rgba(10,10,10,.75);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+      #student-quiz-card{background:#fff;color:#111;width:min(560px,92vw);padding:24px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);display:grid;gap:16px;justify-items:center}
+      #student-quiz-title{font-size:1.25rem;font-weight:700}
+      #studentPhoto{width:180px;height:180px;object-fit:cover;border-radius:12px;box-shadow:0 6px 16px rgba(0,0,0,.2);background:#f2f2f2}
+      #quiz-controls{display:grid;grid-template-columns:1fr auto;gap:8px;width:100%}
+      #student-name-guess{padding:12px 14px;border-radius:10px;border:1px solid #ddd;width:100%;font-size:16px}
+      .quiz-btn{padding:12px 14px;border-radius:10px;border:none;cursor:pointer;font-weight:600;background:#111;color:#fff}
+      .quiz-btn.secondary{background:#eee;color:#111}
+      #quiz-actions{display:flex;gap:8px;width:100%}
+      #quiz-result{min-height:28px;font-size:1rem;font-weight:600}
+      #quiz-footer{width:100%;display:flex;justify-content:space-between;align-items:center}
+      #close-quiz{background:transparent;border:none;font-size:14px;color:#666;cursor:pointer;text-decoration:underline}
+    `;
+    document.head.appendChild(styleEl);
+  }
 
-let dataListConstructorString = `<datalist id="student-name-guess-list">`;
-students.forEach((student) => {
-    dataListConstructorString += `<option value="${student.name}" >${student.name}</option>`;
-});
+  // ==== Overlay UI ==========================================================
+  const quizOverlayEl = document.createElement('div');
+  quizOverlayEl.id = QUIZ_OVERLAY_ID;
+  quizOverlayEl.innerHTML = `
+    <div id="student-quiz-card" role="dialog" aria-modal="true" aria-labelledby="student-quiz-title">
+      <div id="quiz-header" style="display:flex;align-items:center;gap:10px;">
+        <div id="student-quiz-title">Benjamin’s Students Quiz</div>
+      </div>
+      ${visibleImg.outerHTML}
+      <div id="quiz-controls">
+        <input id="student-name-guess" name="guess" list="student-name-guess-list"
+               placeholder="What's the student's name?" autocomplete="off" />
+        <button id="guess-btn" class="quiz-btn">Guess</button>
+      </div>
+      <div id="quiz-actions">
+        <button id="next-btn" class="quiz-btn secondary" title="Show another student">Next</button>
+        <button id="reveal-btn" class="quiz-btn secondary" title="Reveal the answer">Reveal</button>
+      </div>
+      <div id="quiz-result" aria-live="polite"></div>
+      <div id="quiz-footer">
+        <div id="quiz-score">Score: <span id="score-correct">0</span>/<span id="score-total">0</span></div>
+        <button id="close-quiz">Close</button>
+      </div>
+      <datalist id="student-name-guess-list"></datalist>
+    </div>
+  `;
+  document.body.appendChild(quizOverlayEl);
 
-dataListConstructorString += "</datalist>";
+  // Refs
+  const imgEl = document.getElementById('studentPhoto');
+  const nameInput = document.getElementById('student-name-guess');
+  const guessBtn = document.getElementById('guess-btn');
+  const nextBtn = document.getElementById('next-btn');
+  const revealBtn = document.getElementById('reveal-btn');
+  const resultEl = document.getElementById('quiz-result');
+  const scoreCorrectEl = document.getElementById('score-correct');
+  const scoreTotalEl = document.getElementById('score-total');
+  document.getElementById('close-quiz').addEventListener('click', () => quizOverlayEl.remove());
 
-div.innerHTML = `
-        <span style="font-size: 2rem; margin-bottom: 12px;">Benjamin's students quiz</span>
-        <div>
-            <input type="text" name="guess" id="student-name-guess" list="student-name-guess-list" class="student-name-guess" style="padding: 24px; border: none; margin-bottom: 12px; width: 200px;" placeholder="What is the students name?">
-            <button class="guess-student" style="padding: 24px; border: none; margin-bottom: 12px;">Guess name</button>
-        </div>
-        <button class="next-guess" style="padding: 24px; border: none; margin-bottom: 12px;">Next student</button>
-        <div class="result" style="font-size: 2rem; height: 40px;"> </div>
-        ${dataListConstructorString}
-        `;
+  // Fill datalist
+  const datalist = document.getElementById('student-name-guess-list');
+  students.forEach((s) => {
+    const opt = document.createElement('option');
+    opt.value = s.name;
+    datalist.appendChild(opt);
+  });
 
-const result = document.querySelector(".result");
-const studentNameInput = document.querySelector(".student-name-guess");
-document.querySelector("button.guess-student").addEventListener("click", () => {
-    showResult();
-});
+  // ==== State ===============================================================
+  let currentStudent = null;
+  let scoreCorrect = 0;
+  let scoreTotal = 0;
 
-document.querySelector("button.next-guess").addEventListener("click", () => {
-    const randomStudent = getRandomStudentId();
-    showStudent(randomStudent);
-    studentNameInput.value = "";
-    result.innerHTML = " ";
-});
+  // ==== Load student image via hidden iframe ================================
+  function loadStudentImage(student) {
+    const url = `../include/InfoPage.aspx?login=${encodeURIComponent(student.id)}&type=S`;
+    return new Promise((resolve, reject) => {
+      const onLoad = () => {
+        try {
+          const doc = loaderIframe.contentDocument || loaderIframe.contentWindow?.document;
+          if (!doc) throw new Error('No iframe document');
+          const img = doc.querySelector('img');
+          if (!img) return reject(new Error('No <img> found in iframe'));
+          resolve(img.src); // absolute URL
+        } catch (err) {
+          reject(err);
+        } finally {
+          loaderIframe.removeEventListener('load', onLoad);
+        }
+      };
+      loaderIframe.addEventListener('load', onLoad, { once: true });
+      loaderIframe.src = url;
+    });
+  }
 
-function showResult() {
-    if (studentNameInput.value === currentStudentname) {
-        result.innerHTML = "You are correct 🎉";
-    } else {
-        result.innerHTML = "You are wrong 😭 The name is " + currentStudentname;
+  async function showStudent(student) {
+    currentStudent = student;
+    resultEl.textContent = '';
+    nameInput.value = '';
+    imgEl.src = '';
+    imgEl.alt = `Photo of ${student.name}`;
+    try {
+      const imgSrc = await loadStudentImage(student);
+      imgEl.src = imgSrc;
+    } catch (e) {
+      console.warn('Failed to extract image from iframe:', e);
+      resultEl.textContent = 'Could not load image. Try Next.';
     }
-}
+  }
 
-function randomIntFromInterval(min, max) {
-    // min and max included
-    return Math.floor(Math.random() * (max - min + 1) + min);
-}
+  // ==== Guess handling ======================================================
+  function checkAnswer() {
+    if (!currentStudent) return;
+    const guess = normalize(nameInput.value);
+    const actual = normalize(currentStudent.name);
+    scoreTotal += 1;
+    if (guess && guess === actual) {
+      scoreCorrect += 1;
+      resultEl.textContent = 'Correct 🎉';
+    } else {
+      resultEl.textContent = `Wrong 😭 — It’s ${currentStudent.name}`;
+    }
+    scoreCorrectEl.textContent = String(scoreCorrect);
+    scoreTotalEl.textContent = String(scoreTotal);
+    nameInput.focus(); nameInput.select();
+  }
 
-function getRandomStudentId() {
-    return students[randomIntFromInterval(0, numberOfstudents)];
-}
+  function nextStudent() {
+    if (!students.length) return;
+    let candidate = pickRandom(students);
+    if (currentStudent && candidate.id === currentStudent.id) {
+      candidate = pickRandom(students);
+    }
+    showStudent(candidate);
+  }
+
+  // ==== Events ==============================================================
+  guessBtn.addEventListener('click', checkAnswer);
+  nextBtn.addEventListener('click', nextStudent);
+  revealBtn.addEventListener('click', () => {
+    if (currentStudent) resultEl.textContent = `It’s ${currentStudent.name}`;
+  });
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); checkAnswer(); }
+  });
+
+  // ==== Start ===============================================================
+  nextStudent();
+  nameInput.focus();
+
+const card = document.querySelector('#student-quiz-card');
+  if (!card || document.getElementById('quiz-credits')) return;
+
+  const credits = document.createElement('div');
+  credits.id = 'quiz-credits';
+  credits.innerHTML = `Lave af <a href="https://www.linkedin.com/in/benjamindalshughes/" target="_blank" rel="noopener noreferrer">Benjamin Hughes</a>`;
+  credits.style.fontSize = '12px';
+  credits.style.color = '#666';
+  credits.style.marginTop = '8px';
+  credits.style.textAlign = 'right';
+  credits.style.width = '100%';
+  card.appendChild(credits);
+})();
