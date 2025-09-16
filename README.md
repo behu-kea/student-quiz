@@ -20,7 +20,7 @@ Gør følgende:
 4. Paste den ind i Konsol/Console. Tryk på enter
 5. Nu skulle det gerne se sådan her ud:
 
-![Studenter quizzen](assets/CleanShot-2024-09-03-at-10.39.04.png)
+![Studenter quizzen](assets/CleanShot-2025-09-16-at-08.18.22.png)
 
 
 
