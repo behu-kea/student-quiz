@@ -16,6 +16,6 @@ Gør nu følgende:
 4. Paste den ind i Konsol/Console. Tryk på enter
 5. Nu skulle det gerne se sådan her ud:
 
-![Studenter quizzen](assets/CleanShot-2025-09-16-at-08.18.22.png)
+![Studenter quizzen](assets/CleanShot-2025-09-16-at-08.26.54.png)
 
 ![UMS view med javascript i Console](assets/CleanShot-2024-09-03-at-10.35.40.png)
