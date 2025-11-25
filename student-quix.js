@@ -15,7 +15,10 @@
     const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
     const normalize = (s) =>
         (s ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    // ==== Algorithm State =====================================================
+    // Weights track how "hard" a student is. Higher = shows up more often.
+    let studentWeights = {}; 
 
     // ==== Extract students ====================================================
     const idSpans = $$('[id^="DisplayResult_SearchResultCtl_SearchDataList_lblLoginName_"]');
@@ -28,6 +31,51 @@
 
     if (!students.length) {
         console.warn('No students found. Check the selectors.');
+    }
+
+    // Phase 1 Queue: A copy of all students to cycle through first
+    let unseenStudents = [...students];
+
+    // ==== Weighted Logic ======================================================
+    function getWeight(id) {
+        // Default weight is 20.
+        return studentWeights[id] !== undefined ? studentWeights[id] : 20;
+    }
+
+    function adjustWeight(id, isCorrect) {
+        let w = getWeight(id);
+        if (isCorrect) {
+            // Correct: reduce weight (min 1). Shows less often.
+            w = Math.max(1, w - 5); 
+        } else {
+            // Wrong: increase weight significantly. Shows MORE often.
+            w = w + 15; 
+        }
+        studentWeights[id] = w;
+    }
+
+    function pickWeightedStudent(availableStudents, currentId) {
+        // 1. Don't show the exact same person twice in a row
+        let pool = availableStudents;
+        if (availableStudents.length > 1 && currentId) {
+            pool = availableStudents.filter(s => s.id !== currentId);
+        }
+
+        // 2. Calculate total weight
+        const totalWeight = pool.reduce((sum, s) => sum + getWeight(s.id), 0);
+
+        // 3. Roll the dice
+        let randomPointer = Math.random() * totalWeight;
+
+        // 4. Find the winner
+        for (const student of pool) {
+            const w = getWeight(student.id);
+            if (randomPointer < w) {
+                return student;
+            }
+            randomPointer -= w;
+        }
+        return pool[0];
     }
 
     // ==== Hidden iframe (loader) + visible img ================================
@@ -46,7 +94,7 @@
     visibleImg.decoding = 'async';
     visibleImg.loading = 'eager';
 
-    // ==== Styles (only once) ==================================================
+    // ==== Styles ==============================================================
     if (!document.getElementById('student-quiz-style')) {
         const styleEl = document.createElement('style');
         styleEl.id = 'student-quiz-style';
@@ -66,7 +114,7 @@
       .enter-icon{font-size:0.9em;margin-left:6px}
       #quiz-actions{display:flex;gap:8px;width:100%}
       #quiz-result{min-height:28px;font-size:1rem;font-weight:600}
-      #quiz-footer{width:100%;display:flex;justify-content:space-between;align-items:center}
+      #quiz-footer{width:100%;display:flex;justify-content:space-between;align-items:center;font-size:0.9rem;color:#555}
       #close-quiz{position:absolute;top:10px;right:10px;background:transparent;border:none;font-size:22px;line-height:1;color:#666;cursor:pointer}
       #close-quiz:hover{color:#111}
       #quiz-credits{font-size:12px;color:#666;margin-top:4px;width:100%;text-align:right}
@@ -81,7 +129,7 @@
     quizOverlayEl.innerHTML = `
     <div id="student-quiz-card" role="dialog" aria-modal="true" aria-labelledby="student-quiz-title">
       <button id="close-quiz" aria-label="Close">✕</button>
-      <div id="quiz-header" style="display:flex;align-items:center;gap:10px;">
+      <div id="quiz-header" style="text-align:center;">
         <div id="student-quiz-title">Benjamin’s Students Quiz</div>
       </div>
       ${visibleImg.outerHTML}
@@ -97,6 +145,7 @@
       <div id="quiz-result" aria-live="polite"></div>
       <div id="quiz-footer">
         <div id="quiz-score">Score: <span id="score-correct">0</span>/<span id="score-total">0</span></div>
+        <div id="quiz-progress"></div>
       </div>
       <div id="quiz-credits">Lavet af <a href="https://www.linkedin.com/in/benjamindalshughes/" target="_blank" rel="noopener noreferrer">Benjamin Hughes</a></div>
       <datalist id="student-name-guess-list"></datalist>
@@ -104,17 +153,12 @@
   `;
     document.body.appendChild(quizOverlayEl);
 
-    // Close by clicking greyed background
+    // Close handlers
     quizOverlayEl.addEventListener('click', (e) => {
         if (e.target === quizOverlayEl) closeOverlay();
     });
-
-    // Close by Esc
-    const escHandler = (e) => {
-        if (e.key === 'Escape') closeOverlay();
-    };
+    const escHandler = (e) => { if (e.key === 'Escape') closeOverlay(); };
     document.addEventListener('keydown', escHandler);
-
     function closeOverlay() {
         document.removeEventListener('keydown', escHandler);
         quizOverlayEl.remove();
@@ -129,6 +173,7 @@
     const resultEl = document.getElementById('quiz-result');
     const scoreCorrectEl = document.getElementById('score-correct');
     const scoreTotalEl = document.getElementById('score-total');
+    const progressEl = document.getElementById('quiz-progress');
     document.getElementById('close-quiz').addEventListener('click', closeOverlay);
 
     // Fill datalist
@@ -143,10 +188,9 @@
     let currentStudent = null;
     let scoreCorrect = 0;
     let scoreTotal = 0;
-    let awaitingGuess = true; // Enter triggers Guess first; after guessing, Enter triggers Next
+    let awaitingGuess = true; 
 
     function setPrimaryAction(which) {
-        // which: 'guess' | 'next'
         const makePrimary = (btn) => {
             btn.classList.remove('secondary');
             btn.classList.add('primary', 'pulse');
@@ -155,33 +199,22 @@
             btn.classList.add('secondary');
             btn.classList.remove('primary', 'pulse');
         };
-
         if (which === 'guess') {
             makePrimary(guessBtn);
-            // ensure enter icon on Guess
-            if (!guessBtn.querySelector('.enter-icon')) {
-                guessBtn.insertAdjacentHTML('beforeend', ' <span class="enter-icon">↵</span>');
-            }
-            // remove icon from Next
-            const nextIcon = nextBtn.querySelector('.enter-icon');
-            if (nextIcon) nextIcon.remove();
+            if (!guessBtn.querySelector('.enter-icon')) guessBtn.insertAdjacentHTML('beforeend', ' <span class="enter-icon">↵</span>');
+            if (nextBtn.querySelector('.enter-icon')) nextBtn.querySelector('.enter-icon').remove();
             makeSecondary(nextBtn);
             awaitingGuess = true;
         } else {
             makePrimary(nextBtn);
-            // add enter icon to Next
-            if (!nextBtn.querySelector('.enter-icon')) {
-                nextBtn.insertAdjacentHTML('beforeend', ' <span class="enter-icon">↵</span>');
-            }
-            // remove icon from Guess
-            const guessIcon = guessBtn.querySelector('.enter-icon');
-            if (guessIcon) guessIcon.remove();
+            if (!nextBtn.querySelector('.enter-icon')) nextBtn.insertAdjacentHTML('beforeend', ' <span class="enter-icon">↵</span>');
+            if (guessBtn.querySelector('.enter-icon')) guessBtn.querySelector('.enter-icon').remove();
             makeSecondary(guessBtn);
             awaitingGuess = false;
         }
     }
 
-    // ==== Load student image via hidden iframe ================================
+    // ==== Load student image ==================================================
     function loadStudentImage(student) {
         const url = `../include/InfoPage.aspx?login=${encodeURIComponent(student.id)}&type=S`;
         return new Promise((resolve, reject) => {
@@ -191,12 +224,9 @@
                     if (!doc) throw new Error('No iframe document');
                     const img = doc.querySelector('img');
                     if (!img) return reject(new Error('No <img> found in iframe'));
-                    resolve(img.src); // absolute URL
-                } catch (err) {
-                    reject(err);
-                } finally {
-                    loaderIframe.removeEventListener('load', onLoad);
-                }
+                    resolve(img.src);
+                } catch (err) { reject(err); } 
+                finally { loaderIframe.removeEventListener('load', onLoad); }
             };
             loaderIframe.addEventListener('load', onLoad, { once: true });
             loaderIframe.src = url;
@@ -208,42 +238,66 @@
         resultEl.textContent = '';
         nameInput.value = '';
         imgEl.src = '';
-        imgEl.alt = `Loading student photo`;
+        imgEl.alt = `Loading...`;
+        
+        // Update small progress indicator at bottom
+        if (unseenStudents.length > 0) {
+            progressEl.textContent = `${students.length - unseenStudents.length} / ${students.length} seen`;
+        } else {
+            progressEl.textContent = "";
+        }
+
         setPrimaryAction('guess');
         try {
             const imgSrc = await loadStudentImage(student);
             imgEl.src = imgSrc;
         } catch (e) {
-            console.warn('Failed to extract image from iframe:', e);
             resultEl.textContent = 'Could not load image. Try Next.';
-            setPrimaryAction('next'); // if we can’t show image, push user to Next
+            setPrimaryAction('next');
         }
     }
 
-    // ==== Guess handling ======================================================
+    // ==== Logic ===============================================================
     function checkAnswer() {
         if (!currentStudent) return;
         const guess = normalize(nameInput.value);
         const actual = normalize(currentStudent.name);
         scoreTotal += 1;
+        
+        // Update the weighted algorithm immediately
         if (guess && guess === actual) {
             scoreCorrect += 1;
             resultEl.textContent = 'Correct 🎉';
+            adjustWeight(currentStudent.id, true);
         } else {
             resultEl.textContent = `Wrong 😭 — It’s ${currentStudent.name}`;
+            adjustWeight(currentStudent.id, false);
         }
+
         scoreCorrectEl.textContent = String(scoreCorrect);
         scoreTotalEl.textContent = String(scoreTotal);
         nameInput.focus(); nameInput.select();
-        setPrimaryAction('next'); // after guessing, Enter triggers Next
+        setPrimaryAction('next'); 
     }
 
     function nextStudent() {
         if (!students.length) return;
-        let candidate = pickRandom(students);
-        if (currentStudent && candidate.id === currentStudent.id) {
-            candidate = pickRandom(students);
+        
+        let candidate;
+        
+        // Phase 1: Go through everyone randomly first
+        if (unseenStudents.length > 0) {
+            // Pick random index from unseen
+            const randomIndex = Math.floor(Math.random() * unseenStudents.length);
+            candidate = unseenStudents[randomIndex];
+            // Remove from the list so we don't pick them again in Phase 1
+            unseenStudents.splice(randomIndex, 1);
+        } 
+        // Phase 2: Everyone seen at least once, use Weighted Algorithm
+        else {
+            candidate = pickWeightedStudent(students, currentStudent?.id);
         }
+
         showStudent(candidate);
     }
 
@@ -251,10 +305,12 @@
     guessBtn.addEventListener('click', checkAnswer);
     nextBtn.addEventListener('click', nextStudent);
     revealBtn.addEventListener('click', () => {
-        if (currentStudent) resultEl.textContent = `It’s ${currentStudent.name}`;
+        if (currentStudent) {
+            resultEl.textContent = `It’s ${currentStudent.name}`;
+            adjustWeight(currentStudent.id, false); // Count as 'hard'
+        }
     });
 
-    // Enter in input: Guess or Next depending on state
     nameInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
